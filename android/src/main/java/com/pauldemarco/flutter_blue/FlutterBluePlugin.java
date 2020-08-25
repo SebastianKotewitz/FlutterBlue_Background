@@ -77,6 +77,7 @@ public class FlutterBluePlugin implements FlutterPlugin, ActivityAware, MethodCa
     private ActivityPluginBinding activityBinding;
     private Application application;
     private Activity activity;
+    private Context context;
 
     private static final int REQUEST_FINE_LOCATION_PERMISSIONS = 1452;
     static final private UUID CCCD_ID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
@@ -95,11 +96,12 @@ public class FlutterBluePlugin implements FlutterPlugin, ActivityAware, MethodCa
             instance = new FlutterBluePlugin();
         }
         Activity activity = registrar.activity();
+        Context context = registrar.context();
         Application application = null;
         if (registrar.context() != null) {
             application = (Application) (registrar.context().getApplicationContext());
         }
-        instance.setup(registrar.messenger(), application, activity, registrar, null);
+        instance.setup(registrar.messenger(), application, activity, registrar, null, context);
     }
 
     public FlutterBluePlugin() {}
@@ -146,16 +148,18 @@ public class FlutterBluePlugin implements FlutterPlugin, ActivityAware, MethodCa
             final Application application,
             final Activity activity,
             final PluginRegistry.Registrar registrar,
-            final ActivityPluginBinding activityBinding) {
+            final ActivityPluginBinding activityBinding,
+            final Context context) {
         synchronized (initializationLock) {
             Log.i(TAG, "setup");
             this.activity = activity;
+            this.context = context;
             this.application = application;
             channel = new MethodChannel(messenger, NAMESPACE + "/methods");
             channel.setMethodCallHandler(this);
             stateChannel = new EventChannel(messenger, NAMESPACE + "/state");
             stateChannel.setStreamHandler(stateHandler);
-            mBluetoothManager = (BluetoothManager) application.getSystemService(Context.BLUETOOTH_SERVICE);
+            mBluetoothManager = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
             mBluetoothAdapter = mBluetoothManager.getAdapter();
             if (registrar != null) {
                 // V1 embedding setup for activity listeners.
@@ -179,6 +183,7 @@ public class FlutterBluePlugin implements FlutterPlugin, ActivityAware, MethodCa
         mBluetoothAdapter = null;
         mBluetoothManager = null;
         application = null;
+        context = null;
     }
 
 
@@ -190,6 +195,11 @@ public class FlutterBluePlugin implements FlutterPlugin, ActivityAware, MethodCa
         }
 
         switch (call.method) {
+            case "setUniqueId":{
+                result.success(null);
+                break;
+            }
+
             case "setLogLevel":
             {
                 int logLevelIndex = (int)call.arguments;
@@ -240,8 +250,15 @@ public class FlutterBluePlugin implements FlutterPlugin, ActivityAware, MethodCa
 
             case "startScan":
             {
-                if (ContextCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION)
-                        != PackageManager.PERMISSION_GRANTED) {
+                // if (ContextCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION)
+                //         != PackageManager.PERMISSION_GRANTED) {
+                boolean hasPermissions = ContextCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+
+                if(activity == null && !hasPermissions){
+                    result.error("scan_error","bluetooth is not enabled",hasPermssions);
+                    break;
+                }
+                if(!hasPermissions){
                     ActivityCompat.requestPermissions(
                             activity,
                             new String[] {
@@ -728,13 +745,13 @@ public class FlutterBluePlugin implements FlutterPlugin, ActivityAware, MethodCa
         public void onListen(Object o, EventChannel.EventSink eventSink) {
             sink = eventSink;
             IntentFilter filter = new IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED);
-            activity.registerReceiver(mReceiver, filter);
+            context.registerReceiver(mReceiver, filter);
         }
 
         @Override
         public void onCancel(Object o) {
             sink = null;
-            activity.unregisterReceiver(mReceiver);
+            context.unregisterReceiver(mReceiver);
         }
     };
 
